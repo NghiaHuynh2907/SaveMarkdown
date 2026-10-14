@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SaveMarkdown</title>
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="SaveMarkdown">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <script>try{var t=JSON.parse(localStorage.getItem('savemd.theme'));if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
+</head>
+<body class="app-page">
+  <header class="app-header">
+    <div class="header-left">
+      <button type="button" id="btn-sidebar" class="icon-btn" aria-label="Ẩn/hiện thanh bên" title="Ẩn/hiện thanh bên">
+        <svg class="icon" viewBox="0 0 24 24"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
+      </button>
+      <div class="brand">
+        <span class="brand-mark">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13H8"/><path d="M16 17H8"/></svg>
+        </span>
+        <span class="brand-name">SaveMarkdown</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button type="button" id="btn-shortcuts" class="icon-btn hide-touch" aria-label="Phím tắt" title="Phím tắt (?)">
+        <svg class="icon" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/></svg>
+      </button>
+      <button type="button" id="btn-theme" class="icon-btn" aria-label="Đổi giao diện sáng/tối"></button>
+      <button type="button" id="btn-logout" class="btn btn-ghost" title="Đăng xuất">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+        <span class="logout-label">Đăng xuất</span>
+      </button>
+    </div>
+    <input type="file" id="file-input" accept=".md,.markdown,.txt,.png,.jpg,.jpeg,.gif,.webp,.svg" multiple hidden>
+  </header>
+
+  <div class="app-body" id="app-body">
+    <nav class="sidebar" id="sidebar" aria-label="Cây thư mục">
+      <div class="sidebar-head">
+        <div class="search-box">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="search" type="search" placeholder="Tìm file hoặc nội dung…" autocomplete="off" spellcheck="false" aria-label="Tìm kiếm">
+          <kbd class="hide-touch">/</kbd>
+        </div>
+        <div class="sidebar-actions">
+          <button type="button" id="btn-new-file" class="btn btn-primary" title="File mới (N)">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>
+            File mới
+          </button>
+          <button type="button" id="btn-new-folder" class="btn" title="Thư mục mới">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            Thư mục
+          </button>
+          <button type="button" id="btn-upload" class="btn btn-square" title="Tải file lên" aria-label="Tải file lên">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+          </button>
+        </div>
+        <div class="hint" id="target-hint"></div>
+      </div>
+      <div class="tree-scroll" id="tree-scroll">
+        <ul id="tree" class="tree" role="tree"></ul>
+        <div id="search-results" class="search-results" hidden></div>
+      </div>
+      <div class="sidebar-foot">
+        <button type="button" id="btn-trash" class="foot-btn">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          Thùng rác
+        </button>
+        <button type="button" id="btn-zip-all" class="foot-btn" title="Tải toàn bộ tài liệu về dạng .zip">
+          <svg class="icon" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+          Sao lưu .zip
+        </button>
+      </div>
+      <div class="sidebar-resizer" id="sidebar-resizer" title="Kéo để đổi độ rộng, nhấp đúp để đặt lại"></div>
+    </nav>
+    <div class="backdrop" id="backdrop" hidden></div>
+
+    <main class="viewer" id="viewer">
+      <div class="viewer-inner">
+        <div class="doc-header">
+          <nav id="doc-path" class="doc-path" aria-label="Đường dẫn"></nav>
+          <div id="doc-actions" class="doc-actions"></div>
+        </div>
+        <div class="doc-layout">
+          <article id="doc" class="markdown-body"></article>
+          <aside id="toc" class="toc" aria-label="Mục lục" hidden></aside>
+        </div>
+        <div id="editor" class="editor" data-tab="write" hidden>
+          <div class="editor-toolbar" id="editor-toolbar"></div>
+          <div class="editor-panes">
+            <textarea id="editor-input" class="editor-input" spellcheck="false" aria-label="Nội dung markdown"></textarea>
+            <div id="editor-preview" class="markdown-body editor-preview"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="context-menu" class="context-menu" role="menu" hidden></div>
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

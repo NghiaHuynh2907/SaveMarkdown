@@ -1,0 +1,18 @@
+# Build
+bin/
+obj/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Dữ liệu cá nhân: ghi chú, thùng rác, bản sao lưu
+data/
+backups/
+
+# Cấu hình chứa mật khẩu (chỉ ở máy dev)
+appsettings.Development.json
+appsettings.*.local.json

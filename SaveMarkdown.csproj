@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>SaveMarkdown</RootNamespace>
+    <UserSecretsId>savemarkdown-7d3f2a91-5c4e-4b8a-9f1d-2e6b0c8a4d17</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Trang app chỉ được trả về qua endpoint có [Authorize], không nằm trong wwwroot -->
+    <None Remove="AppPages\**" />
+    <Content Include="AppPages\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Thư mục dữ liệu markdown mặc định -->
+    <Content Remove="data\**" />
+    <None Remove="data\**" />
+    <!-- Bản sao lưu tự động -->
+    <Content Remove="backups\**" />
+    <None Remove="backups\**" />
+  </ItemGroup>
+
+</Project>
