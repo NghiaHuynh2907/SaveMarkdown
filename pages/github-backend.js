@@ -67,7 +67,7 @@
 
   // ---------- GitHub API ----------
 
-  async function gh(method, path, body, { noStore = false, token = getToken() } = {}) {
+  async function gh(method, path, body, { noStore = false, token = getToken(), notFound = null } = {}) {
     if (!token) fail(401, 'Chưa đăng nhập');
     const res = await fetch(path.startsWith('http') ? path : REPO + path, {
       method,
@@ -88,6 +88,7 @@
       if (token === getToken()) clearToken();
       fail(401, 'Token hết hạn hoặc không hợp lệ.');
     }
+    if (res.status === 404 && notFound) fail(404, notFound);
     if (res.status === 403 || res.status === 404) {
       if (/rate limit/i.test(message)) fail(429, 'Vượt giới hạn gọi GitHub API, thử lại sau ít phút.');
       fail(403, noAccessMessage(token));
@@ -139,12 +140,16 @@
 
   // ---------- Trạng thái repo (commit mới nhất + danh sách file) ----------
 
-  const repo = { head: null, tree: null, entries: new Map() };
+  // syncedAt: lần cuối biết chắc trạng thái khớp GitHub (đọc về hoặc vừa tự commit).
+  const repo = { head: null, tree: null, entries: new Map(), syncedAt: 0 };
   const blobCache = new Map(); // sha -> Uint8Array (blob theo sha không bao giờ đổi)
+  const FRESH_MS = 3000;
 
   let refEtag = null;
 
-  async function refreshHead() {
+  // force = false: vừa đồng bộ trong 3 giây thì bỏ qua (vd. app.js tải lại cây ngay sau khi ghi).
+  async function refreshHead(force = false) {
+    if (!force && repo.head && Date.now() - repo.syncedAt < FRESH_MS) return;
     const token = getToken();
     if (!token) fail(401, 'Chưa đăng nhập');
     // Hỏi có điều kiện bằng ETag: không có commit mới thì GitHub trả 304 và không tính vào giới hạn gọi API.
@@ -157,7 +162,10 @@
         ...(refEtag && repo.head ? { 'If-None-Match': refEtag } : {}),
       },
     });
-    if (res.status === 304) return;
+    if (res.status === 304) {
+      repo.syncedAt = Date.now();
+      return;
+    }
     if (!res.ok) {
       // Để gh() dịch lỗi (401, 403, 404, rate limit) thành thông báo dễ hiểu.
       await gh('GET', `/git/ref/heads/${cfg.branch}`, null, { noStore: true });
@@ -165,9 +173,11 @@
     }
     refEtag = res.headers.get('ETag');
     const head = (await res.json()).object.sha;
-    if (head === repo.head) return;
-    const commit = await gh('GET', `/git/commits/${head}`);
-    await loadTree(head, commit.tree.sha);
+    if (head !== repo.head) {
+      const commit = await gh('GET', `/git/commits/${head}`);
+      await loadTree(head, commit.tree.sha);
+    }
+    repo.syncedAt = Date.now();
   }
 
   async function loadTree(head, treeSha) {
@@ -180,6 +190,30 @@
     repo.head = head;
     repo.tree = treeSha;
     repo.entries = entries;
+    repo.syncedAt = Date.now();
+  }
+
+  // Sau khi tự commit: cập nhật danh sách file ngay trong trình duyệt thay vì tải lại cả cây.
+  async function applyCommit(changes, head, tree, parent) {
+    const structural = changes.some((c) => c.sha === null || !repo.entries.has(c.path));
+    if (parent !== repo.head) {
+      // Có người khác commit chen vào giữa: tải lại cây để có cả thay đổi của họ.
+      await loadTree(head, tree);
+    } else {
+      for (const c of changes) {
+        if (c.sha === null) repo.entries.delete(c.path);
+        else repo.entries.set(c.path, { type: 'file', sha: c.sha, mode: c.mode || '100644', size: blobCache.get(c.sha)?.length ?? 0 });
+      }
+      // Dựng lại các thư mục từ những file còn lại (thư mục hết file thì biến mất, giống git).
+      for (const [p, e] of repo.entries) if (e.type === 'dir') repo.entries.delete(p);
+      for (const p of [...repo.entries.keys()]) {
+        for (let d = parentOf(p); d && !repo.entries.has(d); d = parentOf(d)) repo.entries.set(d, { type: 'dir' });
+      }
+      repo.head = head;
+      repo.tree = tree;
+      repo.syncedAt = Date.now();
+    }
+    if (structural && changes.some((c) => c.path !== INDEX_FILE)) scheduleIndex();
   }
 
   const fileEntry = (path) => { const e = repo.entries.get(path); return e && e.type === 'file' ? e : null; };
@@ -215,25 +249,58 @@
 
   // ---------- Commit ----------
 
-  // build() đọc repo.entries mới nhất và trả về { changes: [{ path, sha (null = xóa), mode? }],
-  // removedRoot?, message? (thay message mặc định) }.
-  // Nếu có người khác vừa commit chen vào thì đọc lại và làm lại (tối đa 3 lần).
+  const encPath = (path) => path.split('/').map(encodeURIComponent).join('/');
+
+  // Ghi một file bằng Contents API: một request làm luôn blob + tree + commit + cập nhật nhánh. GitHub tự
+  // kiểm tra sha (sửa đồng thời) và commit lên commit mới nhất nên không cần đọc trạng thái trước.
+  async function putFile(path, bytes, message, sha) {
+    const res = await gh('PUT', `/contents/${encPath(path)}`,
+      { message, content: bytesToBase64(bytes), branch: cfg.branch, ...(sha ? { sha } : {}) },
+      { notFound: 'Không tìm thấy.' });
+    blobCache.set(res.content.sha, bytes);
+    await applyCommit([{ path, sha: res.content.sha }], res.commit.sha, res.commit.tree.sha, res.commit.parents[0]?.sha);
+    return res.content.sha;
+  }
+
+  async function deleteFile(path, sha, message) {
+    const res = await gh('DELETE', `/contents/${encPath(path)}`, { message, sha, branch: cfg.branch }, { notFound: 'Không tìm thấy.' });
+    await applyCommit([{ path, sha: null }], res.commit.sha, res.commit.tree.sha, res.commit.parents[0]?.sha);
+    return res.commit.sha;
+  }
+
+  // Kiểm tra trên dữ liệu đang có; không thỏa (vd. thư mục người khác vừa tạo) thì đọc lại từ GitHub một lần.
+  async function ensureFresh(ok) {
+    if (!repo.head) await refreshHead(true);
+    else if (!ok()) await refreshHead(true);
+  }
+
+  // Ghi/xóa với sha không còn khớp file trên GitHub (người khác vừa sửa, hoặc file đã tồn tại).
+  const isShaConflict = (err) => err instanceof HttpError && (err.status === 409 || err.status === 422);
+
+  // Thay đổi nhiều file trong một commit (Git Data API). build() đọc repo.entries và trả về
+  // { changes: [{ path, sha (null = xóa), mode? }], removedRoot?, message? (thay message mặc định) }.
+  // Lần đầu dùng trạng thái đang có cho nhanh; nhánh đã có commit mới (422) hoặc kiểm tra thất bại
+  // do dữ liệu cũ thì đọc lại từ GitHub và làm lại (tối đa 3 lần).
   async function commit(message, build) {
     for (let attempt = 0; ; attempt++) {
-      await refreshHead();
-      const result = await build();
+      if (attempt > 0 || !repo.head) await refreshHead(true);
+      let result;
+      try {
+        result = await build();
+      } catch (err) {
+        if (attempt === 0 && err instanceof HttpError && (err.status === 404 || err.status === 409)) continue;
+        throw err;
+      }
       const changes = result.changes;
       if (!changes.length) return result;
 
       await keepParentAlive(changes, result.removedRoot);
-      const indexChange = await indexUpdate(changes);
-      if (indexChange) changes.push(indexChange);
-
       const tree = await gh('POST', '/git/trees', {
         base_tree: repo.tree,
         tree: changes.map((c) => ({ path: c.path, mode: c.mode || '100644', type: 'blob', sha: c.sha })),
       });
-      const created = await gh('POST', '/git/commits', { message: result.message || message, tree: tree.sha, parents: [repo.head] });
+      const parent = repo.head;
+      const created = await gh('POST', '/git/commits', { message: result.message || message, tree: tree.sha, parents: [parent] });
       try {
         await gh('PATCH', `/git/refs/heads/${cfg.branch}`, { sha: created.sha, force: false });
       } catch (err) {
@@ -241,7 +308,8 @@
         if (err.status === 422 && attempt < 2) continue;
         throw err;
       }
-      await loadTree(created.sha, tree.sha);
+      await applyCommit(changes, created.sha, tree.sha, parent);
+      result.commit = created.sha;
       return result;
     }
   }
@@ -249,13 +317,18 @@
   // Git không lưu thư mục rỗng: khi xóa/chuyển đi mục cuối cùng của một thư mục (removedRoot)
   // thì thêm .gitkeep để thư mục cha vẫn còn.
   async function keepParentAlive(changes, removedRoot) {
-    const dir = parentOf(removedRoot || '');
-    if (!removedRoot || !dir) return;
+    if (removedRoot && wouldEmptyParent(removedRoot, changes)) {
+      changes.push({ path: join(parentOf(removedRoot), KEEP_FILE), sha: await getEmptyBlob() });
+    }
+  }
+
+  function wouldEmptyParent(removedRoot, changes) {
+    const dir = parentOf(removedRoot);
+    if (!dir) return false;
     const prefix = dir + '/';
     const removed = new Set(changes.filter((c) => c.sha === null).map((c) => c.path));
-    const remains = [...repo.entries].some(([p, e]) => e.type === 'file' && p.startsWith(prefix) && !removed.has(p))
-      || changes.some((c) => c.sha !== null && c.path.startsWith(prefix));
-    if (!remains) changes.push({ path: join(dir, KEEP_FILE), sha: await getEmptyBlob() });
+    return ![...repo.entries].some(([p, e]) => e.type === 'file' && p.startsWith(prefix) && !removed.has(p))
+      && !changes.some((c) => c.sha !== null && c.path.startsWith(prefix));
   }
 
   // Blob rỗng cho .gitkeep (tạo một lần, repo nào chưa có thì GitHub tạo mới).
@@ -264,17 +337,19 @@
 
   // ---------- index.md (mục lục, giống bản server) ----------
 
-  async function indexUpdate(changes) {
-    const files = new Map([...repo.entries].filter(([, e]) => e.type === 'file'));
-    for (const c of changes) {
-      if (c.sha === null) files.delete(c.path);
-      else files.set(c.path, { type: 'file', sha: c.sha });
-    }
-    const content = buildIndex([...files.keys()]);
-    const bytes = utf8.encode(content);
-    const sha = await gitBlobSha(bytes);
-    if (files.get(INDEX_FILE)?.sha === sha) return null;
-    return { path: INDEX_FILE, sha: await createBlob(bytes) };
+  let indexTimer = null;
+  function scheduleIndex() {
+    clearTimeout(indexTimer);
+    indexTimer = setTimeout(() => updateIndex().catch((err) => console.warn('Không cập nhật được index.md, sẽ thử lại ở lần thay đổi sau', err)), 5000);
+  }
+
+  async function updateIndex() {
+    await commit('Cập nhật mục lục index.md', async () => {
+      const files = [...repo.entries].filter(([, e]) => e.type === 'file').map(([p]) => p);
+      const bytes = utf8.encode(buildIndex(files));
+      if (fileEntry(INDEX_FILE)?.sha === await gitBlobSha(bytes)) return { changes: [] };
+      return { changes: [{ path: INDEX_FILE, sha: await createBlob(bytes) }] };
+    });
   }
 
   function buildIndex(paths) {
@@ -574,12 +649,29 @@
         targets.push({ file, path: join(folder, name) });
       }
 
+      await ensureFresh(() => dirExists(folder) && targets.every((t) => !exists(t.path)));
+      if (!dirExists(folder)) fail(404, 'Thư mục đích không tồn tại.');
+      const existing = targets.filter((t) => exists(t.path)).map((t) => nameOf(t.path));
+      if (existing.length && !overwrite) fail(409, 'File đã tồn tại.', { existing });
+      if (targets.some((t) => repo.entries.get(t.path)?.type === 'dir')) fail(409, 'Đã có thư mục cùng tên.');
+
+      const message = `Tải lên ${targets.map((t) => t.path).join(', ')}`;
+      if (targets.length === 1) {
+        // Một file: một request.
+        const [t] = targets;
+        try {
+          await putFile(t.path, new Uint8Array(await t.file.arrayBuffer()), message, fileEntry(t.path)?.sha);
+          return json({ uploaded: [t.path] });
+        } catch (err) {
+          if (!isShaConflict(err)) throw err;
+          // Vừa có người tạo/sửa file cùng tên: làm theo cách nhiều file bên dưới (kiểm tra lại từ đầu).
+        }
+      }
       const shas = await Promise.all(targets.map(async (t) => createBlob(new Uint8Array(await t.file.arrayBuffer()))));
-      await commit(`Tải lên ${targets.map((t) => t.path).join(', ')}`, async () => {
+      await commit(message, async () => {
         if (!dirExists(folder)) fail(404, 'Thư mục đích không tồn tại.');
-        const existing = targets.filter((t) => exists(t.path)).map((t) => nameOf(t.path));
-        if (existing.length && !overwrite) fail(409, 'File đã tồn tại.', { existing });
-        if (targets.some((t) => repo.entries.get(t.path)?.type === 'dir')) fail(409, 'Đã có thư mục cùng tên.');
+        const conflicts = targets.filter((t) => exists(t.path)).map((t) => nameOf(t.path));
+        if (conflicts.length && !overwrite) fail(409, 'File đã tồn tại.', { existing: conflicts });
         return { changes: targets.map((t, i) => ({ path: t.path, sha: shas[i] })) };
       });
       return json({ uploaded: targets.map((t) => t.path) });
@@ -588,25 +680,31 @@
     'POST /api/files/file': async (q, body) => {
       const path = cleanPath(body?.path);
       if (!path || !isText(path)) fail(400, 'Tên file phải có đuôi .md, .markdown hoặc .txt.');
+      await ensureFresh(() => !exists(path) && dirExists(parentOf(path)));
+      if (exists(path)) fail(409, 'Đã tồn tại file hoặc thư mục cùng tên.');
+      if (!dirExists(parentOf(path))) fail(404, 'Thư mục cha không tồn tại.');
       const initial = extOf(path) === '.txt' ? '' : `# ${nameOf(path).replace(/\.[^.]+$/, '')}\n\n`;
-      const sha = await createBlob(utf8.encode(initial));
-      await commit(`Tạo ${path}`, async () => {
-        if (exists(path)) fail(409, 'Đã tồn tại file hoặc thư mục cùng tên.');
-        if (!dirExists(parentOf(path))) fail(404, 'Thư mục cha không tồn tại.');
-        return { changes: [{ path, sha }] };
-      });
+      try {
+        await putFile(path, utf8.encode(initial), `Tạo ${path}`);
+      } catch (err) {
+        if (isShaConflict(err)) fail(409, 'Đã tồn tại file hoặc thư mục cùng tên.');
+        throw err;
+      }
       return json({ path });
     },
 
     'POST /api/files/folder': async (q, body) => {
       const path = cleanPath(body?.path);
       if (!path) fail(400, 'Chưa nhập tên thư mục.');
-      const keep = await getEmptyBlob();
-      await commit(`Tạo thư mục ${path}`, async () => {
-        if (exists(path)) fail(409, 'Đã tồn tại file hoặc thư mục cùng tên.');
-        if (!dirExists(parentOf(path))) fail(404, 'Thư mục cha không tồn tại.');
-        return { changes: [{ path: join(path, KEEP_FILE), sha: keep }] };
-      });
+      await ensureFresh(() => !exists(path) && dirExists(parentOf(path)));
+      if (exists(path)) fail(409, 'Đã tồn tại file hoặc thư mục cùng tên.');
+      if (!dirExists(parentOf(path))) fail(404, 'Thư mục cha không tồn tại.');
+      try {
+        await putFile(join(path, KEEP_FILE), new Uint8Array(0), `Tạo thư mục ${path}`);
+      } catch (err) {
+        if (isShaConflict(err)) fail(409, 'Đã tồn tại file hoặc thư mục cùng tên.');
+        throw err;
+      }
       return json({ path });
     },
 
@@ -615,16 +713,22 @@
       if (!isText(path)) fail(400, 'Chỉ sửa được file văn bản.');
       const bytes = utf8.encode(body.content ?? '');
       if (bytes.length > MAX_FILE_BYTES) fail(400, 'Nội dung vượt quá 10 MB.');
-      const sha = await createBlob(bytes);
-      await commit(`Sửa ${path}`, async () => {
+      await ensureFresh(() => !!fileEntry(path));
+      for (let attempt = 0; ; attempt++) {
         const entry = fileEntry(path);
         if (!entry) fail(404, 'Không tìm thấy file.');
-        if (!body.force && body.version && body.version !== entry.sha) {
-          fail(409, 'File đã bị thay đổi ở nơi khác kể từ lúc bạn mở.');
+        // Có version (sha lúc mở file) thì để GitHub so với bản hiện tại: khác nhau -> người khác đã sửa.
+        const expected = !body.force && body.version ? body.version : entry.sha;
+        if (expected === entry.sha && await gitBlobSha(bytes) === entry.sha) return json({ version: entry.sha });
+        try {
+          return json({ version: await putFile(path, bytes, `Sửa ${path}`, expected) });
+        } catch (err) {
+          if (!isShaConflict(err)) throw err;
+          if (!body.force && body.version) fail(409, 'File đã bị thay đổi ở nơi khác kể từ lúc bạn mở.');
+          if (attempt > 0) throw err;
+          await refreshHead(true); // Ghi đè: lấy sha mới nhất rồi thử lại.
         }
-        return { changes: entry.sha === sha ? [] : [{ path, sha, mode: entry.mode }] };
-      });
-      return json({ version: sha });
+      }
     },
 
     'POST /api/files/move': async (q, body) => {
@@ -652,8 +756,18 @@
     'DELETE /api/files': async (q) => {
       const path = cleanPath(q.get('path'));
       if (!path) fail(400, 'Không thể xóa thư mục gốc.');
-      let commitSha = null;
-      await commit(`Xóa ${path}`, async () => {
+      await ensureFresh(() => exists(path));
+      const entry = fileEntry(path);
+      // Xóa một file (thư mục cha vẫn còn file khác): một request. Trả về sha commit xóa làm id "Hoàn tác".
+      if (entry && isAllowed(path) && !wouldEmptyParent(path, [{ path, sha: null }])) {
+        try {
+          return json({ trashId: await deleteFile(path, entry.sha, `Xóa ${path}`) });
+        } catch (err) {
+          if (!isShaConflict(err)) throw err;
+          // Người khác vừa sửa file: làm theo cách đầy đủ bên dưới (đọc lại rồi xóa).
+        }
+      }
+      const result = await commit(`Xóa ${path}`, async () => {
         const isFile = !!fileEntry(path);
         if (isFile ? !isAllowed(path) : !dirExists(path)) fail(404, 'Không tìm thấy.');
         return {
@@ -662,9 +776,8 @@
           // Ghi kiểu vào commit để thùng rác hiện đúng biểu tượng thư mục.
           message: isFile ? undefined : `Xóa ${path}\n\nKiểu: dir`,
         };
-      }).then(() => { commitSha = repo.head; });
-      // Commit xóa đứng tên "Xóa <path>" -> dùng sha của nó làm id để "Hoàn tác".
-      return json({ trashId: commitSha });
+      });
+      return json({ trashId: result.commit });
     },
 
     'GET /api/trash': async () => {

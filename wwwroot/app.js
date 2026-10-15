@@ -768,6 +768,23 @@
     els.actions.replaceChildren(...buttons);
   }
 
+  // File đặt tên kiểu "x.sql.md", "x.cs.md"... mà chưa có khối ``` -> hiển thị cả file như code
+  // (giữ nguyên xuống dòng, tab, dấu *), không cần sửa nội dung đã lưu.
+  const CODE_EXT = {
+    sql: 'sql', cs: 'csharp', js: 'javascript', ts: 'typescript', json: 'json', xml: 'xml', html: 'xml',
+    css: 'css', py: 'python', java: 'java', sh: 'bash', ps1: 'powershell', yaml: 'yaml', yml: 'yaml', vb: 'vbnet',
+  };
+  function codeFileLang(path) {
+    const m = /\.([a-z0-9]+)\.(md|markdown)$/i.exec(path || '');
+    return (m && CODE_EXT[m[1].toLowerCase()]) || null;
+  }
+
+  function asCodeFile(path, text) {
+    const lang = codeFileLang(path);
+    if (!lang || /^\s*(```|~~~)/m.test(text)) return text;
+    return '```' + lang + '\n' + text.replace(/\s+$/, '') + '\n```\n';
+  }
+
   function renderView() {
     if (extOf(state.openFile) === '.txt') {
       const pre = el('pre', 'plain', state.content);
@@ -775,7 +792,7 @@
       els.toc.hidden = true;
       return;
     }
-    renderMarkdownInto(els.doc, state.content, parentOf(state.openFile), true);
+    renderMarkdownInto(els.doc, asCodeFile(state.openFile, state.content), parentOf(state.openFile), true);
     buildToc();
   }
 
@@ -803,7 +820,7 @@
       container.replaceChildren(el('pre', 'plain', text));
       return;
     }
-    container.innerHTML = DOMPurify.sanitize(marked.parse(text, { gfm: true }));
+    container.innerHTML = DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: true }));
 
     // Tiêu đề: gán id để mục lục / link #... nhảy tới.
     const used = new Map();
@@ -1079,7 +1096,7 @@
 
   let previewTimer = null;
   function renderPreview() {
-    renderMarkdownInto(els.editorPreview, els.editorInput.value, parentOf(state.openFile), false);
+    renderMarkdownInto(els.editorPreview, asCodeFile(state.openFile, els.editorInput.value), parentOf(state.openFile), false);
   }
 
   els.editorInput.addEventListener('input', () => {
@@ -1172,6 +1189,49 @@
     }
     els.editorToolbar.replaceChildren(...items, tabs);
   }
+
+  // Đoạn dán trông giống code (SQL, C#, JS...) và có nhiều dòng: bọc trong khối ``` để hiển thị
+  // giữ nguyên xuống dòng, thụt lề và ký tự đặc biệt. Toast có nút để dán lại dạng chữ thường.
+  const SQL_LINE = /^\s*(select|insert|update|delete|merge|create|alter|drop|declare|set|use|go|exec|execute|with|begin|end|from|where|join|inner|left|right|group|order|having|union|return|if|else|while)\b/i;
+  const CODE_LINE = /^\s*(public|private|protected|internal|static|class|interface|namespace|using|import|export|function|const|let|var|def|return|if|else|for|foreach|while|switch|case|try|catch|async|await)\b|^\s*<\/?[a-z][\w-]*[\s>]|[;{}]\s*$|=>|\)\s*\{|^\s*(\/\/|\/\*|\*|--|#)/i;
+  const MARKDOWN_LINE = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|\|.*\|\s*$)/;
+
+  function codeLanguage(text) {
+    const lines = text.split(/\r\n|\n|\r/).filter((l) => l.trim());
+    if (lines.length < 3 || /^\s*(```|~~~)/m.test(text)) return null;
+    const sql = lines.filter((l) => SQL_LINE.test(l)).length;
+    const code = lines.filter((l) => SQL_LINE.test(l) || CODE_LINE.test(l) || /^(\t| {4})/.test(l)).length;
+    const markdown = lines.filter((l) => MARKDOWN_LINE.test(l)).length;
+    if (markdown > code || code / lines.length < 0.4) return null;
+    return sql >= 2 && sql / lines.length >= 0.2 ? 'sql' : '';
+  }
+
+  // Con trỏ đang nằm trong một khối ``` (số dòng mở/đóng khối phía trước là số lẻ).
+  const insideFence = (value, pos) => (value.slice(0, pos).match(/^\s*(```|~~~)/gm) || []).length % 2 === 1;
+
+  els.editorInput.addEventListener('paste', (e) => {
+    const text = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (!text) return;
+    const ta = els.editorInput;
+    const { selectionStart: start, selectionEnd: end, value } = ta;
+    if (insideFence(value, start) || codeFileLang(state.openFile)) return;
+    const lang = codeLanguage(text);
+    if (lang === null) return;
+
+    e.preventDefault();
+    const before = start > 0 && value[start - 1] !== '\n' ? '\n' : '';
+    const fenced = before + '```' + lang + '\n' + text.replace(/\s+$/, '') + '\n```\n';
+    replaceRange(start, end, fenced, start + fenced.length, start + fenced.length);
+    toast('Đã dán dạng code để giữ nguyên định dạng', {
+      action: {
+        label: 'Dán dạng chữ',
+        run: () => {
+          if (ta.value.slice(start, start + fenced.length) !== fenced) return;
+          replaceRange(start, start + fenced.length, text, start + text.length, start + text.length);
+        },
+      },
+    });
+  });
 
   els.editorInput.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
