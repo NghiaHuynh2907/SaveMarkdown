@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đăng nhập · SaveMarkdown</title>
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <script>try{var t=JSON.parse(localStorage.getItem('savemd.theme'));if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .token-help { margin-top: 20px; font-size: 13px; color: var(--muted, #6b7280); line-height: 1.55; }
+    .token-help summary { cursor: pointer; color: var(--accent, #4f46e5); font-weight: 500; }
+    .token-help ol { padding-left: 20px; margin: 10px 0; }
+    .token-help li { margin-bottom: 6px; }
+    .token-help a { color: var(--accent, #4f46e5); }
+  </style>
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13H8"/><path d="M16 17H8"/></svg>
+      </span>
+      SaveMarkdown
+    </div>
+    <h1>Đăng nhập</h1>
+    <p class="subtitle">Nhập GitHub token của bạn để mở tài liệu trong <strong id="repo-label"></strong>.</p>
+    <form id="login-form" novalidate>
+      <div>
+        <label class="field-label" for="password">GitHub token</label>
+        <div class="password-field">
+          <input id="password" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…" required autofocus>
+          <button type="button" id="toggle-password" class="password-toggle" aria-label="Hiện token" aria-pressed="false"></button>
+        </div>
+      </div>
+      <label class="checkbox">
+        <input id="remember" name="remember" type="checkbox">
+        Ghi nhớ trên máy này
+      </label>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <button type="submit" id="submit" class="btn btn-primary">Vào</button>
+    </form>
+    <details class="token-help">
+      <summary>Lấy token ở đâu?</summary>
+      <ol>
+        <li>Chủ repo mời bạn vào repo tài liệu (Settings → Collaborators), bạn chấp nhận lời mời trong email.</li>
+        <li>Mở <a id="token-link" target="_blank" rel="noopener">GitHub → Fine-grained token mới</a>.</li>
+        <li><em>Resource owner</em>: chọn chủ repo tài liệu. <em>Repository access</em>: <em>Only select repositories</em> → chọn repo tài liệu.</li>
+        <li><em>Permissions → Repository → Contents</em>: <strong>Read and write</strong>. Bấm <em>Generate token</em>, copy và dán vào ô trên.</li>
+      </ol>
+      <p>Token chỉ lưu trong trình duyệt của bạn và chỉ gửi tới GitHub.</p>
+    </details>
+  </main>
+  <script src="config.js"></script>
+  <script src="github-backend.js"></script>
+  <script src="login.js"></script>
+</body>
+</html>

@@ -45,6 +45,19 @@
   const folderLabel = (p) => p ? `/${p}` : ROOT_NAME;
   const rawUrl = (p) => `/api/files/raw?path=${enc(p)}`;
 
+  // Bản chạy trên GitHub Pages cài window.SAVEMD_BACKEND để thay server (gọi GitHub API).
+  const backend = window.SAVEMD_BACKEND || null;
+  const loginUrl = backend ? backend.loginUrl : '/login';
+
+  // Gán ảnh/link ảnh từ thư mục tài liệu; bản GitHub cần tải kèm token nên trả về blob URL.
+  function setRawUrl(node, attr, path) {
+    if (!backend) {
+      node[attr] = rawUrl(path);
+      return;
+    }
+    backend.blobUrl(path).then((url) => { node[attr] = url; }).catch(() => { /* ảnh lỗi thì bỏ qua */ });
+  }
+
   // localStorage chỉ dùng cho tiện ích cá nhân (theme, thư mục đang mở...); lỗi thì bỏ qua.
   const store = {
     get(key, fallback) {
@@ -109,7 +122,6 @@
     listChecks: svg('<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>'),
     quote: svg('<path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/>'),
     code: svg('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
-    github: svg('<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>'),
     link: svg('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'),
   };
 
@@ -141,10 +153,10 @@
 
   // Mọi request API đi qua đây: gặp 401 -> lưu nháp (nếu đang sửa) rồi về trang đăng nhập.
   async function api(url, options = {}) {
-    const res = await fetch(url, { credentials: 'same-origin', ...options });
+    const res = backend ? await backend.fetch(url, options) : await fetch(url, { credentials: 'same-origin', ...options });
     if (res.status === 401) {
       if (state.editing && state.dirty) saveDraftNow();
-      location.replace('/login');
+      location.replace(loginUrl);
       throw new Error('unauthorized');
     }
     return res;
@@ -653,7 +665,7 @@
     renderPath(path);
     const figure = el('figure', 'image-view');
     const img = el('img');
-    img.src = rawUrl(path);
+    setRawUrl(img, 'src', path);
     img.alt = nameOf(path);
     figure.appendChild(img);
     els.doc.replaceChildren(figure);
@@ -726,7 +738,7 @@
     const buttons = [];
     if (isText(state.openFile)) buttons.push(actionButton('Sửa', ICONS.pencil, startEditing, 'btn', 'E'));
     if (githubUrl(state.openFile, 'file')) {
-      buttons.push(actionButton('Link GitHub', ICONS.github, () => copyGithubLink(state.openFile, 'file'), 'btn'));
+      buttons.push(actionButton('Copy link', ICONS.link, () => copyGithubLink(state.openFile, 'file'), 'btn'));
     }
     buttons.push(actionButton('Tải về', ICONS.download, () => downloadFile(state.openFile), 'btn btn-primary'));
     els.actions.replaceChildren(...buttons);
@@ -799,7 +811,7 @@
         if (isText(target)) {
           a.setAttribute('href', hashFor(target));
         } else if (isImage(target)) {
-          a.href = rawUrl(target);
+          setRawUrl(a, 'href', target);
           a.target = '_blank';
         }
       }
@@ -811,7 +823,7 @@
       img.loading = 'lazy';
       if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) return;
       const target = resolveRelative(baseDir, src);
-      if (target != null) img.src = rawUrl(target);
+      if (target != null) setRawUrl(img, 'src', target);
     });
 
     // Code: tô màu + nút copy.
@@ -1206,11 +1218,14 @@
     setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
   }
 
-  // Link xem trên GitHub Pages (repo tài liệu); null nếu server chưa bật đồng bộ git.
-  // Pages không có trang cho từng thư mục: chỉ thư mục gốc (index) có link.
+  // Link chia sẻ: ưu tiên mở thẳng trong bản web SaveMarkdown (appUrl, cần đăng nhập),
+  // không có thì dùng GitHub Pages của repo tài liệu; null nếu chưa bật đồng bộ git.
+  // Không có trang cho từng thư mục: chỉ thư mục gốc có link.
   function githubUrl(path, type) {
     const git = state.git;
-    if (!git || !git.enabled || !git.pagesUrl) return null;
+    if (!git || !git.enabled) return null;
+    if (git.appUrl) return path ? (type === 'dir' ? null : git.appUrl + hashFor(path)) : git.appUrl;
+    if (!git.pagesUrl) return null;
     if (!path) return `${git.pagesUrl}/`;
     if (type === 'dir') return null;
     const encoded = path.split('/').map(enc).join('/').replace(/\.(md|markdown)$/i, '.html');
@@ -1222,9 +1237,9 @@
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
-      toast('Đã copy link GitHub. Thay đổi mới sẽ lên GitHub sau vài giây.');
+      toast(backend ? 'Đã copy link.' : 'Đã copy link. Thay đổi mới sẽ lên GitHub sau vài giây.');
     } catch {
-      await uiPrompt({ title: 'Link GitHub', label: 'Copy link bên dưới', value: url, okLabel: 'Đóng' });
+      await uiPrompt({ title: 'Link chia sẻ', label: 'Copy link bên dưới', value: url, okLabel: 'Đóng' });
     }
   }
 
@@ -1437,7 +1452,7 @@
 
   async function showTrash() {
     const list = el('div', 'trash-list');
-    const note = el('p', 'trash-note', 'Mục trong thùng rác tự xóa hẳn sau 30 ngày.');
+    const note = el('p', 'trash-note', backend ? backend.trashNote : 'Mục trong thùng rác tự xóa hẳn sau 30 ngày.');
     let emptyButton = null;
 
     async function refresh() {
@@ -1605,7 +1620,7 @@
       const items = [{ label: 'Mở', icon: ICONS.eye, action: () => goToFile(node.path) }];
       if (isText(node.path)) items.push({ label: 'Sửa', icon: ICONS.pencil, shortcut: 'E', action: () => editFile(node.path) });
       items.push({ label: 'Tải về máy', icon: ICONS.download, action: () => downloadFile(node.path) });
-      if (githubUrl(node.path, 'file')) items.push({ label: 'Copy link GitHub', icon: ICONS.github, action: () => copyGithubLink(node.path, 'file') });
+      if (githubUrl(node.path, 'file')) items.push({ label: 'Copy link', icon: ICONS.link, action: () => copyGithubLink(node.path, 'file') });
       items.push(
         'separator',
         { label: 'Đổi tên', icon: ICONS.rename, shortcut: 'F2', action: () => renameItem(node) },
@@ -1620,7 +1635,7 @@
       { label: 'Tải file lên', icon: ICONS.upload, action: () => pickFiles(node.path) },
       { label: 'Tải về (.zip)', icon: ICONS.archive, action: () => downloadZip(node.path) },
     ];
-    if (githubUrl(node.path, 'dir')) items.push({ label: 'Copy link GitHub', icon: ICONS.github, action: () => copyGithubLink(node.path, 'dir') });
+    if (githubUrl(node.path, 'dir')) items.push({ label: 'Copy link', icon: ICONS.link, action: () => copyGithubLink(node.path, 'dir') });
     if (!isRoot) {
       items.push(
         'separator',
@@ -1948,15 +1963,16 @@
     clearDraft();
     state.dirty = false;
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      if (backend) backend.logout();
+      else await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
     } finally {
-      location.replace('/login');
+      location.replace(loginUrl);
     }
   });
 
   // ================= Khởi động =================
 
-  if ('serviceWorker' in navigator) {
+  if ('serviceWorker' in navigator && !backend) {
     navigator.serviceWorker.register('/sw.js').catch(() => { /* không bắt buộc */ });
   }
 
@@ -1965,7 +1981,7 @@
   (async () => {
     const me = await api('/api/auth/me');
     if (!me.ok) {
-      location.replace('/login');
+      location.replace(loginUrl);
       return;
     }
     const git = await api('/api/git/status').catch(() => null);

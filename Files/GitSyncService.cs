@@ -28,6 +28,15 @@ public sealed class GitOptions
     /// <summary>Địa chỉ GitHub Pages; để trống thì suy ra từ RemoteUrl (https://owner.github.io/repo).</summary>
     public string PagesUrl { get; set; } = "";
 
+    /// <summary>
+    /// Địa chỉ bản web SaveMarkdown (GitHub Pages của repo code), vd. https://owner.github.io/SaveMarkdown/.
+    /// Có giá trị thì nút "Copy link" trong app trỏ tới bản web thay vì trang tài liệu.
+    /// </summary>
+    public string AppUrl { get; set; } = "";
+
+    /// <summary>Chu kỳ kéo thay đổi từ GitHub (do người khác sửa qua bản web) khi ở đây không có gì mới.</summary>
+    public double PullMinutes { get; set; } = 1;
+
     /// <summary>Tự sinh index.md ở thư mục gốc liệt kê mọi tài liệu (làm trang chủ cho GitHub Pages).</summary>
     public bool GenerateIndex { get; set; } = true;
 
@@ -69,7 +78,8 @@ public sealed class GitSyncService(
     {
         lock (_statusLock)
         {
-            return new { enabled = Enabled, webUrl = WebUrl, pagesUrl = PagesUrl, branch = Branch, lastPush = _lastPush, lastError = _lastError };
+            var appUrl = string.IsNullOrWhiteSpace(_o.AppUrl) ? null : _o.AppUrl.Trim();
+            return new { enabled = Enabled, webUrl = WebUrl, pagesUrl = PagesUrl, appUrl, branch = Branch, lastPush = _lastPush, lastError = _lastError };
         }
     }
 
@@ -90,6 +100,7 @@ public sealed class GitSyncService(
             pending.Add("Đồng bộ lúc khởi động");
 
             var debounce = TimeSpan.FromSeconds(Math.Max(1, _o.DebounceSeconds));
+            var pullEvery = TimeSpan.FromMinutes(Math.Max(0.5, _o.PullMinutes));
             while (!stoppingToken.IsCancellationRequested)
             {
                 if (pending.Count > 0)
@@ -100,9 +111,14 @@ public sealed class GitSyncService(
                     if (await SyncAsync(pending, stoppingToken)) pending.Clear();
                     else if (await WaitForChange(RetryEvery, stoppingToken) is { } more) pending.Add(more);
                 }
+                else if (await WaitForChange(pullEvery, stoppingToken) is { } change)
+                {
+                    pending.Add(change);
+                }
                 else
                 {
-                    pending.Add(await _changes.Reader.ReadAsync(stoppingToken));
+                    // Không có thay đổi ở đây: kéo thay đổi người khác sửa qua bản web về.
+                    await SyncAsync(pending, stoppingToken);
                 }
             }
         }
@@ -153,7 +169,8 @@ public sealed class GitSyncService(
     {
         try
         {
-            if (_o.GenerateIndex) await WriteIndexAsync(ct);
+            // Chỉ sinh lại mục lục khi có thay đổi ở đây (bản web tự cập nhật index.md khi nó commit).
+            if (_o.GenerateIndex && changes.Count > 0) await WriteIndexAsync(ct);
             await GitAsync(ct, "add", "-A");
             var dirty = await GitAsync(ct, "status", "--porcelain");
             if (dirty.Output.Length > 0)
@@ -188,9 +205,15 @@ public sealed class GitSyncService(
                 }
             }
 
-            await GitAsync(ct, "push", "-q", "-u", "origin", $"HEAD:refs/heads/{_o.Branch}");
+            var ahead = remoteHasBranch
+                ? (await GitAsync(ct, "rev-list", "--count", $"origin/{_o.Branch}..HEAD")).Output.Trim()
+                : "1";
+            if (ahead != "0")
+            {
+                await GitAsync(ct, "push", "-q", "-u", "origin", $"HEAD:refs/heads/{_o.Branch}");
+                logger.LogInformation("Đã push lên {Remote}", WebUrl);
+            }
             SetPushed();
-            logger.LogInformation("Đã push {Count} thay đổi lên {Remote}", changes.Count, WebUrl);
             return true;
         }
         catch (InvalidOperationException ex)
@@ -242,6 +265,7 @@ public sealed class GitSyncService(
     private static string CommitMessage(List<string> changes)
     {
         var distinct = changes.Distinct().ToList();
+        if (distinct.Count == 0) return "Cập nhật tài liệu";
         if (distinct.Count == 1) return distinct[0];
         return $"Cập nhật {distinct.Count} thay đổi\n\n" + string.Join('\n', distinct.Select(c => "- " + c));
     }

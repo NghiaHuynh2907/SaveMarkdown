@@ -22,3 +22,17 @@ Cài đặt lần đầu:
 
 Trạng thái đồng bộ (lần push gần nhất, lỗi nếu có): `GET /api/git/status`.
 Tắt tính năng: `Git:Enabled = false`.
+
+## Bản web cho team (GitHub Pages)
+
+https://nghiahuynh2907.github.io/SaveMarkdown/ là bản tĩnh của app, đọc/ghi thẳng repo tài liệu
+(`pages/config.js`) qua GitHub API: không cần server, repo tài liệu vẫn private, mỗi thay đổi là
+một commit đứng tên người sửa. Thùng rác lấy từ các commit "Xóa …" trong 30 ngày gần đây.
+
+- Mỗi member: được mời vào repo tài liệu, tạo fine-grained token (chỉ repo tài liệu,
+  *Contents: Read and write*) rồi dán vào trang đăng nhập (có hướng dẫn ngay trên trang).
+- Deploy tự động bằng `.github/workflows/pages.yml` mỗi khi push thay đổi ở `pages/`, `wwwroot/app.js`,
+  `wwwroot/styles.css`, `AppPages/app.html` (Settings → Pages → Source = **GitHub Actions**).
+- Dựng thử ở máy: `bash pages/build.sh _site` rồi mở `_site` bằng một web server tĩnh.
+- App ASP.NET (nếu vẫn chạy) tự kéo thay đổi từ GitHub mỗi `Git:PullMinutes` phút; nút "Copy link"
+  của nó trỏ tới bản web (`Git:AppUrl`).

@@ -16,3 +16,4 @@ backups/
 # Cấu hình chứa mật khẩu (chỉ ở máy dev)
 appsettings.Development.json
 appsettings.*.local.json
+_site/
