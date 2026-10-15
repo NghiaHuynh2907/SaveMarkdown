@@ -25,6 +25,9 @@ public sealed class GitOptions
     public string AuthorName { get; set; } = "SaveMarkdown";
     public string AuthorEmail { get; set; } = "savemarkdown@users.noreply.github.com";
 
+    /// <summary>Tự sinh index.md ở thư mục gốc liệt kê mọi tài liệu (làm trang chủ cho GitHub Pages).</summary>
+    public bool GenerateIndex { get; set; } = true;
+
     /// <summary>Gom các thay đổi liên tiếp trong khoảng này thành một commit.</summary>
     public double DebounceSeconds { get; set; } = 5;
 }
@@ -142,6 +145,7 @@ public sealed class GitSyncService(
     {
         try
         {
+            if (_o.GenerateIndex) await WriteIndexAsync(ct);
             await GitAsync(ct, "add", "-A");
             var dirty = await GitAsync(ct, "status", "--porcelain");
             if (dirty.Output.Length > 0)
@@ -186,6 +190,44 @@ public sealed class GitSyncService(
             SetError(ex.Message);
             logger.LogWarning("Đồng bộ git thất bại, sẽ thử lại: {Error}", ex.Message);
             return false;
+        }
+    }
+
+    public const string IndexFile = "index.md";
+
+    private async Task WriteIndexAsync(CancellationToken ct)
+    {
+        var sb = new StringBuilder();
+        sb.Append("# Tài liệu\n\n");
+        sb.Append("> Trang này do SaveMarkdown tự sinh mỗi lần đồng bộ, sửa tay sẽ bị ghi đè.\n\n");
+        AppendIndex(sb, new DirectoryInfo(paths.Root), 0);
+
+        var full = Path.Combine(paths.Root, IndexFile);
+        var content = sb.ToString();
+        if (File.Exists(full) && await File.ReadAllTextAsync(full, ct) == content) return;
+        await File.WriteAllTextAsync(full, content, new UTF8Encoding(false), ct);
+    }
+
+    private void AppendIndex(StringBuilder sb, DirectoryInfo dir, int depth)
+    {
+        var indent = new string(' ', depth * 2);
+        foreach (var sub in dir.EnumerateDirectories().Where(FileEndpoints.IsVisible)
+                     .OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            // Git không lưu thư mục rỗng nên bỏ qua thư mục không có tài liệu.
+            var children = new StringBuilder();
+            AppendIndex(children, sub, depth + 1);
+            if (children.Length == 0) continue;
+            sb.Append($"{indent}- **{sub.Name}/**\n").Append(children);
+        }
+        foreach (var file in dir.EnumerateFiles()
+                     .Where(f => FileEndpoints.IsVisible(f) && FileEndpoints.IsText(f.Name))
+                     .Where(f => depth > 0 || !f.Name.Equals(IndexFile, StringComparison.OrdinalIgnoreCase))
+                     .OrderBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            // Link tương đối tới .md: GitHub Pages tự đổi thành .html, trên github.com vẫn mở được.
+            var link = paths.ToRelative(file.FullName).Replace(" ", "%20");
+            sb.Append($"{indent}- [{Path.GetFileNameWithoutExtension(file.Name)}]({link})\n");
         }
     }
 
