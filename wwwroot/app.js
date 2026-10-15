@@ -1206,13 +1206,15 @@
     setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
   }
 
-  // Link xem trên GitHub (repo tài liệu); null nếu server chưa bật đồng bộ git.
+  // Link xem trên GitHub Pages (repo tài liệu); null nếu server chưa bật đồng bộ git.
+  // Pages không có trang cho từng thư mục: chỉ thư mục gốc (index) có link.
   function githubUrl(path, type) {
     const git = state.git;
-    if (!git || !git.enabled || !git.webUrl) return null;
-    if (!path) return git.webUrl;
-    const encoded = path.split('/').map(enc).join('/');
-    return `${git.webUrl}/${type === 'dir' ? 'tree' : 'blob'}/${enc(git.branch)}/${encoded}`;
+    if (!git || !git.enabled || !git.pagesUrl) return null;
+    if (!path) return `${git.pagesUrl}/`;
+    if (type === 'dir') return null;
+    const encoded = path.split('/').map(enc).join('/').replace(/\.(md|markdown)$/i, '.html');
+    return `${git.pagesUrl}/${encoded}`;
   }
 
   async function copyGithubLink(path, type) {

@@ -25,6 +25,9 @@ public sealed class GitOptions
     public string AuthorName { get; set; } = "SaveMarkdown";
     public string AuthorEmail { get; set; } = "savemarkdown@users.noreply.github.com";
 
+    /// <summary>Địa chỉ GitHub Pages; để trống thì suy ra từ RemoteUrl (https://owner.github.io/repo).</summary>
+    public string PagesUrl { get; set; } = "";
+
     /// <summary>Tự sinh index.md ở thư mục gốc liệt kê mọi tài liệu (làm trang chủ cho GitHub Pages).</summary>
     public bool GenerateIndex { get; set; } = true;
 
@@ -55,13 +58,18 @@ public sealed class GitSyncService(
     /// <summary>Link xem trên web, vd. https://github.com/owner/repo (không kèm thông tin đăng nhập).</summary>
     public string? WebUrl => Enabled ? ToWebUrl(_o.RemoteUrl) : null;
 
+    /// <summary>Địa chỉ GitHub Pages của repo tài liệu, vd. https://owner.github.io/repo</summary>
+    public string? PagesUrl => !Enabled ? null
+        : !string.IsNullOrWhiteSpace(_o.PagesUrl) ? _o.PagesUrl.Trim().TrimEnd('/')
+        : ToPagesUrl(WebUrl!);
+
     public string Branch => _o.Branch;
 
     public object Status()
     {
         lock (_statusLock)
         {
-            return new { enabled = Enabled, webUrl = WebUrl, branch = Branch, lastPush = _lastPush, lastError = _lastError };
+            return new { enabled = Enabled, webUrl = WebUrl, pagesUrl = PagesUrl, branch = Branch, lastPush = _lastPush, lastError = _lastError };
         }
     }
 
@@ -311,6 +319,15 @@ public sealed class GitSyncService(
             throw new InvalidOperationException($"git {args[0]} lỗi: {output.Trim()}");
         }
         return (process.ExitCode, output);
+    }
+
+    // https://github.com/Owner/repo -> https://owner.github.io/repo
+    private static string? ToPagesUrl(string webUrl)
+    {
+        if (!Uri.TryCreate(webUrl, UriKind.Absolute, out var uri) ||
+            !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) return null;
+        var parts = uri.AbsolutePath.Trim('/').Split('/');
+        return parts.Length == 2 ? $"https://{parts[0].ToLowerInvariant()}.github.io/{parts[1]}" : null;
     }
 
     private static string ToWebUrl(string remote)
