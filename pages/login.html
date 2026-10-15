@@ -46,15 +46,14 @@
       <summary>Lấy token ở đâu?</summary>
       <ol>
         <li><strong class="js-owner"></strong> mời bạn vào repo <strong class="js-repo"></strong> (Settings → Collaborators). Bạn bấm chấp nhận lời mời trong email.</li>
-        <li>Mở <a id="token-link" target="_blank" rel="noopener">GitHub → tạo Fine-grained token</a>.</li>
-        <li><em>Resource owner</em>: chọn <strong class="js-owner"></strong>.</li>
-        <li><em>Repository access</em> → <em>Only select repositories</em> → chọn <strong class="js-repo"></strong>.</li>
-        <li><em>Permissions</em> → <em>Contents</em>: <strong>Read and write</strong>. Bấm <em>Generate token</em>, copy và dán vào ô trên.</li>
+        <li>Mở <a id="classic-link" target="_blank" rel="noopener">GitHub → tạo token (classic)</a>.</li>
+        <li><em>Expiration</em>: chọn hạn dùng (vd. 90 ngày). <em>Select scopes</em>: tick <strong>repo</strong>.</li>
+        <li>Bấm <em>Generate token</em>, copy token (bắt đầu bằng <code>ghp_</code>) và dán vào ô trên.</li>
       </ol>
-      <p>Không chọn được <strong class="js-owner"></strong> ở <em>Resource owner</em> hoặc không thấy repo
-        <strong class="js-repo"></strong> trong danh sách? GitHub chưa cho token loại này truy cập repo của tài khoản khác.
-        Khi đó tạo <a id="classic-link" target="_blank" rel="noopener">token classic</a> (tick quyền <strong>repo</strong>, đặt hạn dùng)
-        và dán vào ô trên.</p>
+      <p>Phải dùng token <strong>classic</strong>: token fine-grained (<code>github_pat_…</code>) không mở được repo
+        thuộc tài khoản cá nhân của người khác, kể cả khi bạn là collaborator. Chỉ <strong class="js-owner"></strong>
+        mới dùng được <a id="token-link" target="_blank" rel="noopener">token fine-grained</a> (chỉ chọn repo
+        <strong class="js-repo"></strong>, Contents: Read and write).</p>
       <p>Token chỉ lưu trong trình duyệt của bạn và chỉ gửi tới GitHub.</p>
     </details>
   </main>

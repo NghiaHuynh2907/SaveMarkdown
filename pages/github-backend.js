@@ -90,11 +90,21 @@
     }
     if (res.status === 403 || res.status === 404) {
       if (/rate limit/i.test(message)) fail(429, 'Vượt giới hạn gọi GitHub API, thử lại sau ít phút.');
-      fail(403, `Token không có quyền với repo ${cfg.owner}/${cfg.repo} (cần quyền Contents: Read and write).`);
+      fail(403, noAccessMessage(token));
     }
     const error = new HttpError(res.status, message || `GitHub trả lỗi ${res.status}`);
     error.github = true;
     throw error;
+  }
+
+  // Token fine-grained (github_pat_…) không mở được repo thuộc tài khoản cá nhân của người khác,
+  // kể cả khi là collaborator -> người không phải chủ repo phải dùng token classic.
+  function noAccessMessage(token) {
+    const repoName = `${cfg.owner}/${cfg.repo}`;
+    if (token.startsWith('github_pat_')) {
+      return `Token fine-grained không mở được ${repoName}. Nếu bạn không phải ${cfg.owner}, hãy dùng token classic (tick quyền repo).`;
+    }
+    return `Tài khoản của token chưa vào được ${repoName}: kiểm tra đã chấp nhận lời mời collaborator chưa và token classic có tick quyền repo.`;
   }
 
   // ---------- Base64 / UTF-8 ----------
@@ -697,7 +707,11 @@
     logout: clearToken,
     // Dùng cho trang đăng nhập.
     async verifyToken(token) {
-      await gh('GET', '', null, { noStore: true, token });
+      const info = await gh('GET', '', null, { noStore: true, token });
+      // Được xem nhưng không được ghi (vd. token classic thiếu quyền repo, hoặc chỉ có quyền đọc).
+      if (info.permissions && info.permissions.push === false) {
+        fail(403, `Tài khoản này chỉ có quyền xem ${cfg.owner}/${cfg.repo}, chưa có quyền ghi.`);
+      }
       return true;
     },
     setToken,
