@@ -317,8 +317,32 @@
       toastError(await errorMessage(res));
       return;
     }
-    state.tree = await res.json();
+    state.treeJson = await res.text();
+    state.tree = JSON.parse(state.treeJson);
     renderTree();
+  }
+
+  // Tự cập nhật cây khi người khác thêm/xóa/đổi tên: định kỳ khi tab đang mở và ngay khi quay lại tab.
+  // Chỉ vẽ lại khi cây thật sự đổi; bỏ qua lúc đang mở menu, hộp thoại hoặc kéo thả để không làm phiền.
+  const TREE_REFRESH_MS = backend ? backend.refreshMs : 5000;
+  let refreshing = false;
+
+  async function refreshTreeQuietly() {
+    if (refreshing || document.hidden || !state.tree) return;
+    if (els.modalRoot.childElementCount || !els.menu.hidden || document.querySelector('.tree-row.dragging')) return;
+    refreshing = true;
+    try {
+      const res = await api('/api/files/tree');
+      if (!res.ok) return;
+      const json = await res.text();
+      if (json === state.treeJson) return;
+      state.treeJson = json;
+      state.tree = JSON.parse(json);
+      renderTree();
+      if (els.search.value.trim()) await runSearch();
+    } catch { /* mất mạng tạm thời: lần sau thử lại */ } finally {
+      refreshing = false;
+    }
   }
 
   function renderTree() {
@@ -1975,6 +1999,9 @@
   if ('serviceWorker' in navigator && !backend) {
     navigator.serviceWorker.register('/sw.js').catch(() => { /* không bắt buộc */ });
   }
+
+  setInterval(refreshTreeQuietly, TREE_REFRESH_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTreeQuietly(); });
 
   buildEditorToolbar();
   showEmptyState();

@@ -142,9 +142,29 @@
   const repo = { head: null, tree: null, entries: new Map() };
   const blobCache = new Map(); // sha -> Uint8Array (blob theo sha không bao giờ đổi)
 
+  let refEtag = null;
+
   async function refreshHead() {
-    const ref = await gh('GET', `/git/ref/heads/${cfg.branch}`, null, { noStore: true });
-    const head = ref.object.sha;
+    const token = getToken();
+    if (!token) fail(401, 'Chưa đăng nhập');
+    // Hỏi có điều kiện bằng ETag: không có commit mới thì GitHub trả 304 và không tính vào giới hạn gọi API.
+    const res = await fetch(`${REPO}/git/ref/heads/${cfg.branch}`, {
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(refEtag && repo.head ? { 'If-None-Match': refEtag } : {}),
+      },
+    });
+    if (res.status === 304) return;
+    if (!res.ok) {
+      // Để gh() dịch lỗi (401, 403, 404, rate limit) thành thông báo dễ hiểu.
+      await gh('GET', `/git/ref/heads/${cfg.branch}`, null, { noStore: true });
+      fail(res.status, `GitHub trả lỗi ${res.status}`);
+    }
+    refEtag = res.headers.get('ETag');
+    const head = (await res.json()).object.sha;
     if (head === repo.head) return;
     const commit = await gh('GET', `/git/commits/${head}`);
     await loadTree(head, commit.tree.sha);
@@ -696,6 +716,8 @@
   }
 
   window.SAVEMD_BACKEND = {
+    // Chu kỳ tự cập nhật cây thư mục (ms); phần lớn lần hỏi là 304 nên không tốn giới hạn API.
+    refreshMs: 15000,
     // Nhớ tài liệu đang mở để đăng nhập xong quay lại đúng chỗ.
     get loginUrl() {
       try { if (location.hash.startsWith('#/')) sessionStorage.setItem('savemd.returnHash', location.hash); } catch { /* bỏ qua */ }

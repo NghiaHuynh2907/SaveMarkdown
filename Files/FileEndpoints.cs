@@ -325,7 +325,7 @@ public static class FileEndpoints
         return Results.Ok(new { path = paths.ToRelative(full) });
     }
 
-    private static IResult CreateFolder(PathRequest request, SafePathResolver paths)
+    private static IResult CreateFolder(PathRequest request, SafePathResolver paths, GitSyncService git)
     {
         var full = paths.Resolve(request.Path);
         if (paths.IsRoot(full))
@@ -342,6 +342,9 @@ public static class FileEndpoints
         }
 
         Directory.CreateDirectory(full);
+        // Git không lưu thư mục rỗng: thêm file ẩn để thư mục mới vẫn được đồng bộ lên GitHub.
+        File.WriteAllBytes(Path.Combine(full, ".gitkeep"), []);
+        git.NotifyChanged("Tạo thư mục " + paths.ToRelative(full));
         return Results.Ok(new { path = paths.ToRelative(full) });
     }
 
