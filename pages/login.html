@@ -26,12 +26,12 @@
       SaveMarkdown
     </div>
     <h1>Đăng nhập</h1>
-    <p class="subtitle">Nhập GitHub token của bạn để mở tài liệu trong <strong id="repo-label"></strong>.</p>
+    <p class="subtitle">Nhập GitHub token của bạn để mở tài liệu.</p>
     <form id="login-form" novalidate>
       <div>
         <label class="field-label" for="password">GitHub token</label>
         <div class="password-field">
-          <input id="password" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…" required autofocus>
+          <input id="password" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_…" required autofocus>
           <button type="button" id="toggle-password" class="password-toggle" aria-label="Hiện token" aria-pressed="false"></button>
         </div>
       </div>
@@ -45,15 +45,11 @@
     <details class="token-help">
       <summary>Lấy token ở đâu?</summary>
       <ol>
-        <li><strong class="js-owner"></strong> mời bạn vào repo <strong class="js-repo"></strong> (Settings → Collaborators). Bạn bấm chấp nhận lời mời trong email.</li>
+        <li>Liên hệ <strong class="js-owner"></strong> để được thêm quyền truy cập, sau đó bấm chấp nhận lời mời trong email.</li>
         <li>Mở <a id="classic-link" target="_blank" rel="noopener">GitHub → tạo token (classic)</a>.</li>
         <li><em>Expiration</em>: chọn hạn dùng (vd. 90 ngày). <em>Select scopes</em>: tick <strong>repo</strong>.</li>
         <li>Bấm <em>Generate token</em>, copy token (bắt đầu bằng <code>ghp_</code>) và dán vào ô trên.</li>
       </ol>
-      <p>Phải dùng token <strong>classic</strong>: token fine-grained (<code>github_pat_…</code>) không mở được repo
-        thuộc tài khoản cá nhân của người khác, kể cả khi bạn là collaborator. Chỉ <strong class="js-owner"></strong>
-        mới dùng được <a id="token-link" target="_blank" rel="noopener">token fine-grained</a> (chỉ chọn repo
-        <strong class="js-repo"></strong>, Contents: Read and write).</p>
       <p>Token chỉ lưu trong trình duyệt của bạn và chỉ gửi tới GitHub.</p>
     </details>
   </main>

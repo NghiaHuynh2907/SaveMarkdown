@@ -100,12 +100,12 @@
 
   // Token fine-grained (github_pat_…) không mở được repo thuộc tài khoản cá nhân của người khác,
   // kể cả khi là collaborator -> người không phải chủ repo phải dùng token classic.
+  // Thông báo không nêu tên repo, chỉ hướng dẫn liên hệ người quản lý.
   function noAccessMessage(token) {
-    const repoName = `${cfg.owner}/${cfg.repo}`;
     if (token.startsWith('github_pat_')) {
-      return `Token fine-grained không mở được ${repoName}. Nếu bạn không phải ${cfg.owner}, hãy dùng token classic (tick quyền repo).`;
+      return 'Token này không dùng được. Hãy tạo token classic (tick quyền repo) theo hướng dẫn bên dưới.';
     }
-    return `Tài khoản của token chưa vào được ${repoName}: kiểm tra đã chấp nhận lời mời collaborator chưa và token classic có tick quyền repo.`;
+    return `Tài khoản chưa có quyền truy cập tài liệu. Liên hệ ${cfg.owner} để được thêm, rồi bấm chấp nhận lời mời trong email.`;
   }
 
   // ---------- Base64 / UTF-8 ----------
@@ -845,14 +845,13 @@
       const info = await gh('GET', '', null, { noStore: true, token });
       // Được xem nhưng không được ghi (vd. token classic thiếu quyền repo, hoặc chỉ có quyền đọc).
       if (info.permissions && info.permissions.push === false) {
-        fail(403, `Tài khoản này chỉ có quyền xem ${cfg.owner}/${cfg.repo}, chưa có quyền ghi.`);
+        fail(403, `Tài khoản này chỉ có quyền xem tài liệu. Liên hệ ${cfg.owner} để được cấp quyền sửa.`);
       }
       return true;
     },
     setToken,
     hasToken: () => !!getToken(),
-    repoLabel: `${cfg.owner}/${cfg.repo}`,
-    owner: cfg.owner,
-    repo: cfg.repo,
+    // Người quản lý quyền truy cập (hiển thị ở trang đăng nhập).
+    contact: cfg.owner,
   };
 })();
