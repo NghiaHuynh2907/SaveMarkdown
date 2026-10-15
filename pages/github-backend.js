@@ -437,8 +437,11 @@
       } catch (err) {
         // Token không dùng được -> bỏ token và quay về trang đăng nhập kèm lý do.
         if (!(err instanceof HttpError)) throw err;
-        clearToken();
-        try { sessionStorage.setItem('savemd.loginError', err.message); } catch { /* bỏ qua */ }
+        // Chưa có token thì chỉ cần về trang đăng nhập, không báo lỗi.
+        if (getToken()) {
+          clearToken();
+          try { sessionStorage.setItem('savemd.loginError', err.message); } catch { /* bỏ qua */ }
+        }
         fail(401, err.message);
       }
       return json({ authenticated: true });
@@ -700,5 +703,7 @@
     setToken,
     hasToken: () => !!getToken(),
     repoLabel: `${cfg.owner}/${cfg.repo}`,
+    owner: cfg.owner,
+    repo: cfg.repo,
   };
 })();

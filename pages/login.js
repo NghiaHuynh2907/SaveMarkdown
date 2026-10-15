@@ -8,7 +8,15 @@
   const error = document.getElementById('login-error');
 
   document.getElementById('repo-label').textContent = backend.repoLabel;
-  document.getElementById('token-link').href = 'https://github.com/settings/personal-access-tokens/new';
+  document.querySelectorAll('.js-owner').forEach((n) => { n.textContent = backend.owner; });
+  document.querySelectorAll('.js-repo').forEach((n) => { n.textContent = backend.repo; });
+  // Điền sẵn tên token, chủ repo và quyền Contents (GitHub bỏ qua tham số nào không hỗ trợ).
+  document.getElementById('token-link').href = 'https://github.com/settings/personal-access-tokens/new?' + new URLSearchParams({
+    name: `SaveMarkdown - ${backend.repo}`, target_name: backend.owner, expires_in: '90', contents: 'write',
+  });
+  document.getElementById('classic-link').href = 'https://github.com/settings/tokens/new?' + new URLSearchParams({
+    scopes: 'repo', description: `SaveMarkdown - ${backend.repo}`,
+  });
 
   // Quay lại đúng tài liệu đang mở dở (link chia sẻ dạng index.html#/thư-mục/file.md).
   const target = () => 'index.html' + (sessionStorage.getItem('savemd.returnHash') || '');

@@ -45,11 +45,16 @@
     <details class="token-help">
       <summary>Lấy token ở đâu?</summary>
       <ol>
-        <li>Chủ repo mời bạn vào repo tài liệu (Settings → Collaborators), bạn chấp nhận lời mời trong email.</li>
-        <li>Mở <a id="token-link" target="_blank" rel="noopener">GitHub → Fine-grained token mới</a>.</li>
-        <li><em>Resource owner</em>: chọn chủ repo tài liệu. <em>Repository access</em>: <em>Only select repositories</em> → chọn repo tài liệu.</li>
-        <li><em>Permissions → Repository → Contents</em>: <strong>Read and write</strong>. Bấm <em>Generate token</em>, copy và dán vào ô trên.</li>
+        <li><strong class="js-owner"></strong> mời bạn vào repo <strong class="js-repo"></strong> (Settings → Collaborators). Bạn bấm chấp nhận lời mời trong email.</li>
+        <li>Mở <a id="token-link" target="_blank" rel="noopener">GitHub → tạo Fine-grained token</a>.</li>
+        <li><em>Resource owner</em>: chọn <strong class="js-owner"></strong>.</li>
+        <li><em>Repository access</em> → <em>Only select repositories</em> → chọn <strong class="js-repo"></strong>.</li>
+        <li><em>Permissions</em> → <em>Contents</em>: <strong>Read and write</strong>. Bấm <em>Generate token</em>, copy và dán vào ô trên.</li>
       </ol>
+      <p>Không chọn được <strong class="js-owner"></strong> ở <em>Resource owner</em> hoặc không thấy repo
+        <strong class="js-repo"></strong> trong danh sách? GitHub chưa cho token loại này truy cập repo của tài khoản khác.
+        Khi đó tạo <a id="classic-link" target="_blank" rel="noopener">token classic</a> (tick quyền <strong>repo</strong>, đặt hạn dùng)
+        và dán vào ô trên.</p>
       <p>Token chỉ lưu trong trình duyệt của bạn và chỉ gửi tới GitHub.</p>
     </details>
   </main>
