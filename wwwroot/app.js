@@ -109,6 +109,7 @@
     listChecks: svg('<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>'),
     quote: svg('<path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/>'),
     code: svg('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
+    github: svg('<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>'),
     link: svg('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'),
   };
 
@@ -131,6 +132,7 @@
     dirty: false,
     uploadFolder: '',
     pendingEdit: null,
+    git: null,
   };
   state.expanded.add('');
   const saveExpanded = () => store.set('expanded', [...state.expanded]);
@@ -723,6 +725,9 @@
     }
     const buttons = [];
     if (isText(state.openFile)) buttons.push(actionButton('Sửa', ICONS.pencil, startEditing, 'btn', 'E'));
+    if (githubUrl(state.openFile, 'file')) {
+      buttons.push(actionButton('Link GitHub', ICONS.github, () => copyGithubLink(state.openFile, 'file'), 'btn'));
+    }
     buttons.push(actionButton('Tải về', ICONS.download, () => downloadFile(state.openFile), 'btn btn-primary'));
     els.actions.replaceChildren(...buttons);
   }
@@ -1201,6 +1206,26 @@
     setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
   }
 
+  // Link xem trên GitHub (repo tài liệu); null nếu server chưa bật đồng bộ git.
+  function githubUrl(path, type) {
+    const git = state.git;
+    if (!git || !git.enabled || !git.webUrl) return null;
+    if (!path) return git.webUrl;
+    const encoded = path.split('/').map(enc).join('/');
+    return `${git.webUrl}/${type === 'dir' ? 'tree' : 'blob'}/${enc(git.branch)}/${encoded}`;
+  }
+
+  async function copyGithubLink(path, type) {
+    const url = githubUrl(path, type);
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Đã copy link GitHub. Thay đổi mới sẽ lên GitHub sau vài giây.');
+    } catch {
+      await uiPrompt({ title: 'Link GitHub', label: 'Copy link bên dưới', value: url, okLabel: 'Đóng' });
+    }
+  }
+
   const downloadFile = (path) => downloadUrl(`/api/files/download?path=${enc(path)}`, nameOf(path));
   const downloadZip = (path) => downloadUrl(`/api/files/zip?path=${enc(path)}`, `${path ? nameOf(path) : 'SaveMarkdown'}.zip`);
 
@@ -1577,8 +1602,9 @@
     if (node.type === 'file') {
       const items = [{ label: 'Mở', icon: ICONS.eye, action: () => goToFile(node.path) }];
       if (isText(node.path)) items.push({ label: 'Sửa', icon: ICONS.pencil, shortcut: 'E', action: () => editFile(node.path) });
+      items.push({ label: 'Tải về máy', icon: ICONS.download, action: () => downloadFile(node.path) });
+      if (githubUrl(node.path, 'file')) items.push({ label: 'Copy link GitHub', icon: ICONS.github, action: () => copyGithubLink(node.path, 'file') });
       items.push(
-        { label: 'Tải về máy', icon: ICONS.download, action: () => downloadFile(node.path) },
         'separator',
         { label: 'Đổi tên', icon: ICONS.rename, shortcut: 'F2', action: () => renameItem(node) },
         { label: 'Di chuyển…', icon: ICONS.move, action: () => moveDialog(node) },
@@ -1592,6 +1618,7 @@
       { label: 'Tải file lên', icon: ICONS.upload, action: () => pickFiles(node.path) },
       { label: 'Tải về (.zip)', icon: ICONS.archive, action: () => downloadZip(node.path) },
     ];
+    if (githubUrl(node.path, 'dir')) items.push({ label: 'Copy link GitHub', icon: ICONS.github, action: () => copyGithubLink(node.path, 'dir') });
     if (!isRoot) {
       items.push(
         'separator',
@@ -1939,6 +1966,8 @@
       location.replace('/login');
       return;
     }
+    const git = await api('/api/git/status').catch(() => null);
+    if (git && git.ok) state.git = await git.json();
     await loadTree();
     const path = pathFromHash();
     if (path) await openFileAt(path);

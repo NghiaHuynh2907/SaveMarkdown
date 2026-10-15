@@ -52,6 +52,8 @@ public static class FileEndpoints
         files.MapPost("/move", Move);
         files.MapDelete("/", Delete);
 
+        app.MapGet("/api/git/status", (GitSyncService git) => Results.Ok(git.Status())).RequireAuthorization();
+
         var trash = app.MapGroup("/api/trash").RequireAuthorization().AddEndpointFilter(InvalidPathFilter);
         trash.MapGet("/", (TrashService t) => Results.Ok(t.List()));
         trash.MapPost("/restore", RestoreTrash);
@@ -243,7 +245,7 @@ public static class FileEndpoints
 
     // ---------- Ghi ----------
 
-    private static async Task<IResult> Upload(HttpRequest request, SafePathResolver paths)
+    private static async Task<IResult> Upload(HttpRequest request, SafePathResolver paths, GitSyncService git)
     {
         if (!request.HasFormContentType)
         {
@@ -290,11 +292,12 @@ public static class FileEndpoints
             await using var stream = File.Create(fullPath);
             await file.CopyToAsync(stream);
         }
+        git.NotifyChanged("Tải lên " + string.Join(", ", targets.Select(t => paths.ToRelative(t.FullPath))));
 
         return Results.Ok(new { uploaded = targets.Select(t => paths.ToRelative(t.FullPath)) });
     }
 
-    private static async Task<IResult> CreateFile(PathRequest request, SafePathResolver paths)
+    private static async Task<IResult> CreateFile(PathRequest request, SafePathResolver paths, GitSyncService git)
     {
         var full = paths.Resolve(request.Path);
         if (paths.IsRoot(full) || !IsText(full))
@@ -318,6 +321,7 @@ public static class FileEndpoints
         {
             await writer.WriteAsync(initial);
         }
+        git.NotifyChanged("Tạo " + paths.ToRelative(full));
         return Results.Ok(new { path = paths.ToRelative(full) });
     }
 
@@ -341,7 +345,7 @@ public static class FileEndpoints
         return Results.Ok(new { path = paths.ToRelative(full) });
     }
 
-    private static async Task<IResult> Save(SaveRequest request, SafePathResolver paths)
+    private static async Task<IResult> Save(SaveRequest request, SafePathResolver paths, GitSyncService git)
     {
         var full = paths.Resolve(request.Path);
         if (!IsText(full))
@@ -368,12 +372,13 @@ public static class FileEndpoints
         var temp = $"{full}.{Guid.NewGuid():N}.tmp";
         await File.WriteAllTextAsync(temp, content, Utf8NoBom);
         File.Move(temp, full, overwrite: true);
+        git.NotifyChanged("Sửa " + paths.ToRelative(full));
 
         file.Refresh();
         return Results.Ok(new { version = Version(file) });
     }
 
-    private static IResult Move(MoveRequest request, SafePathResolver paths)
+    private static IResult Move(MoveRequest request, SafePathResolver paths, GitSyncService git)
     {
         var from = paths.Resolve(request.From);
         var to = paths.Resolve(request.To);
@@ -427,10 +432,11 @@ public static class FileEndpoints
         {
             MoveEntry(from, to);
         }
+        git.NotifyChanged($"Di chuyển {paths.ToRelative(from)} → {paths.ToRelative(to)}");
         return Results.Ok(new { path = paths.ToRelative(to) });
     }
 
-    private static IResult Delete(string? path, SafePathResolver paths, TrashService trash)
+    private static IResult Delete(string? path, SafePathResolver paths, TrashService trash, GitSyncService git)
     {
         var full = paths.Resolve(path);
         if (paths.IsRoot(full))
@@ -443,12 +449,14 @@ public static class FileEndpoints
         }
 
         var entry = trash.MoveToTrash(full);
+        git.NotifyChanged("Xóa " + entry.OriginalPath);
         return Results.Ok(new { trashId = entry.Id });
     }
 
-    private static IResult RestoreTrash(IdRequest request, TrashService trash)
+    private static IResult RestoreTrash(IdRequest request, TrashService trash, GitSyncService git)
     {
         var restored = trash.Restore(request.Id ?? "");
+        if (restored is not null) git.NotifyChanged("Khôi phục " + restored);
         return restored is null ? NotFound("Không tìm thấy trong thùng rác.") : Results.Ok(new { path = restored });
     }
 

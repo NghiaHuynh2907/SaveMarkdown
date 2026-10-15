@@ -12,6 +12,9 @@ builder.Services.AddSingleton<SafePathResolver>();
 builder.Services.AddSingleton<TrashService>();
 builder.Services.Configure<BackupOptions>(builder.Configuration.GetSection(BackupOptions.Section));
 builder.Services.AddHostedService<BackupService>();
+builder.Services.Configure<GitOptions>(builder.Configuration.GetSection(GitOptions.Section));
+builder.Services.AddSingleton<GitSyncService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<GitSyncService>());
 
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
